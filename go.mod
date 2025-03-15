@@ -1,6 +1,6 @@
 module github.com/AnatolyRugalev/go-iradix-generic
 
-go 1.18.0
+go 1.18
 
 require (
 	github.com/hashicorp/go-uuid v1.0.3
