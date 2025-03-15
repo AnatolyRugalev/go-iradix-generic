@@ -12,7 +12,7 @@ import (
 	"testing/quick"
 
 	"github.com/hashicorp/go-uuid"
-	"golang.org/x/exp/slices"
+	"slices"
 )
 
 func CopyTree[K keyT, T any](t *Tree[K, T]) *Tree[K, T] {

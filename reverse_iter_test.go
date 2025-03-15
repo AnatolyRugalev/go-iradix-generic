@@ -9,7 +9,7 @@ import (
 	"testing"
 	"testing/quick"
 
-	"golang.org/x/exp/slices"
+	"slices"
 )
 
 func TestReverseIterator_SeekReverseLowerBoundFuzz(t *testing.T) {
