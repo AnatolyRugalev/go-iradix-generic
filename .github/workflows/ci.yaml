@@ -1,20 +1,30 @@
-name: Run CI Tests
-on: [push]
+name: Run Tests
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
 env:
-  GO_VERSION: 1.18.4
+  GO_VERSION: 1.21
 jobs:
   run-tests:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu
     steps:
-      - uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.0.0
-      - uses: actions/setup-go@93397bea11091df50f3d7e59dc26a7711a8bcfbe # v4.1.0
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
-          go-version: ${{env.GO_VERSION}}
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@08e2f20817b15149a52b5b3ebe7de50aff2ba8c5
+          go-version: 1.21
       - name: Run Go Vet
         run: |
           go vet ./...
+      - name: Run Go Test and generate coverage report
+        run: |
+          go test -race -v ./... -coverprofile=coverage.out
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
       - name: Run Go Fmt
         run: |
           files=$(go fmt ./...)
@@ -23,11 +33,8 @@ jobs:
             echo "$files"
             exit 1
           fi
-      - name: Run Go Test and generate coverage report
-        run: |
-          go test -race -v ./... -coverprofile=coverage.out
       - name: Upload coverage report
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        uses: actions/upload-artifact@v4
         with:
          path: coverage.out
          name: Coverage-report
