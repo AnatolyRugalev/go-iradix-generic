@@ -5,7 +5,6 @@ package iradix
 
 import (
 	"fmt"
-	"math/rand"
 	"reflect"
 	"sort"
 	"testing"
@@ -1769,22 +1768,6 @@ func TestIterateLowerBound(t *testing.T) {
 }
 
 type readableString string
-
-func (s readableString) Generate(rand *rand.Rand, size int) reflect.Value {
-	// Pick a random string from a limited alphabet that makes it easy to read the
-	// failure cases.
-	const letters = "abcdefg"
-
-	// Ignore size and make them all shortish to provoke bigger chance of hitting
-	// prefixes and more intersting tree shapes.
-	size = rand.Intn(8)
-
-	b := make([]byte, size)
-	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))]
-	}
-	return reflect.ValueOf(readableString(b))
-}
 
 func TestIterateLowerBoundFuzz(t *testing.T) {
 	r := New[byte, any]()

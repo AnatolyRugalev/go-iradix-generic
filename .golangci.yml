@@ -1,7 +1,1 @@
-linters:
- enable:
-   - errcheck
-   - gosimple
- disable:
-   - staticcheck
-output_format: colored-line-number
+linters: {}

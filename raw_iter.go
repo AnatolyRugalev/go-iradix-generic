@@ -52,7 +52,7 @@ func (i *rawIterator[K, T]) Next() {
 		}
 	}
 
-	for len(i.stack) > 0 {
+	if len(i.stack) > 0 {
 		// Inspect the last element of the stack.
 		n := len(i.stack)
 		last := i.stack[n-1]
