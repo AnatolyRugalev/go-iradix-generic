@@ -4,8 +4,6 @@
 package iradix
 
 import (
-	"slices"
-
 	"github.com/hashicorp/golang-lru/v2/simplelru"
 )
 

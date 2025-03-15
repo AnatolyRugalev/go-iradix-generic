@@ -3,11 +3,6 @@
 
 package iradix
 
-import (
-	"bytes"
-	"slices"
-)
-
 // Iterator is used to iterate over a set of nodes
 // in pre-order
 type Iterator[K keyT, T any] struct {
