@@ -6,47 +6,47 @@ package iradix
 // rawIterator visits each of the nodes in the tree, even the ones that are not
 // leaves. It keeps track of the effective path (what a leaf at a given node
 // would be called), which is useful for comparing trees.
-type rawIterator[T any] struct {
+type rawIterator[K keyT, T any] struct {
 	// node is the starting node in the tree for the iterator.
-	node *Node[T]
+	node *Node[K, T]
 
 	// stack keeps track of edges in the frontier.
-	stack []rawStackEntry[T]
+	stack []rawStackEntry[K, T]
 
 	// pos is the current position of the iterator.
-	pos *Node[T]
+	pos *Node[K, T]
 
 	// path is the effective path of the current iterator position,
 	// regardless of whether the current node is a leaf.
-	path string
+	path []K
 }
 
 // rawStackEntry is used to keep track of the cumulative common path as well as
 // its associated edges in the frontier.
-type rawStackEntry[T any] struct {
-	path  string
-	edges edges[T]
+type rawStackEntry[K keyT, T any] struct {
+	path  []K
+	edges edges[K, T]
 }
 
 // Front returns the current node that has been iterated to.
-func (i *rawIterator[T]) Front() *Node[T] {
+func (i *rawIterator[K, T]) Front() *Node[K, T] {
 	return i.pos
 }
 
 // Path returns the effective path of the current node, even if it's not actually
 // a leaf.
-func (i *rawIterator[T]) Path() string {
+func (i *rawIterator[K, T]) Path() []K {
 	return i.path
 }
 
 // Next advances the iterator to the next node.
-func (i *rawIterator[T]) Next() {
+func (i *rawIterator[K, T]) Next() {
 	// Initialize our stack if needed.
 	if i.stack == nil && i.node != nil {
-		i.stack = []rawStackEntry[T]{
+		i.stack = []rawStackEntry[K, T]{
 			{
-				edges: edges[T]{
-					edge[T]{node: i.node},
+				edges: edges[K, T]{
+					edge[K, T]{node: i.node},
 				},
 			},
 		}
@@ -67,15 +67,15 @@ func (i *rawIterator[T]) Next() {
 
 		// Push the edges onto the frontier.
 		if len(elem.edges) > 0 {
-			path := last.path + string(elem.prefix)
-			i.stack = append(i.stack, rawStackEntry[T]{path, elem.edges})
+			path := append(last.path, elem.prefix...)
+			i.stack = append(i.stack, rawStackEntry[K, T]{path, elem.edges})
 		}
 
 		i.pos = elem
-		i.path = last.path + string(elem.prefix)
+		i.path = append(last.path, elem.prefix...)
 		return
 	}
 
 	i.pos = nil
-	i.path = ""
+	i.path = i.path[:0]
 }

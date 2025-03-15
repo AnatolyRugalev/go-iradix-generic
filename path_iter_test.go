@@ -10,7 +10,7 @@ import (
 )
 
 func TestPathIterator(t *testing.T) {
-	r := New[any]()
+	r := New[byte, any]()
 
 	keys := []string{
 		"foo",
