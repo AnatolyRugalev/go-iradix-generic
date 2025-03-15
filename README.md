@@ -1,40 +1,46 @@
-go-immutable-radix [![Run CI Tests](https://github.com/hashicorp/go-immutable-radix/actions/workflows/ci.yaml/badge.svg)](https://github.com/hashicorp/go-immutable-radix/actions/workflows/ci.yaml)
-=========
+# go-iradix-generic
 
-Provides the `iradix` package that implements an immutable [radix tree](http://en.wikipedia.org/wiki/Radix_tree).
-The package only provides a single `Tree` implementation, optimized for sparse nodes.
+This is a hard fork of Hashicorp's [go-immutable-radix](https://github.com/hashicorp/go-immutable-radix) package.
 
-As a radix tree, it provides the following:
- * O(k) operations. In many cases, this can be faster than a hash table since
-   the hash function is an O(k) operation, and hash tables have very poor cache locality.
- * Minimum / Maximum value lookups
- * Ordered iteration
+The only difference from the original is a swap of `[]byte` keys to `[]constraints.Ordered` generic interface.
 
-A tree supports using a transaction to batch multiple updates (insert, delete)
-in a more efficient manner than performing each operation one at a time.
+## Motivation
 
-For a mutable variant, see [go-radix](https://github.com/armon/go-radix).
+For the purpose of one of my projects, using `[]byte` for keys is unnecessary and somewhat wasteful. Hashicorp's
+package is a perfect fit for my needs, but `[]byte` was getting in a way, so I decided to fork it.
 
-V2
-==
+## State of the Fork
 
-The v2 of go-immutable-radix introduces generics to improve compile-time type
-safety for users of the package. The module name for v2 is
-`github.com/hashicorp/go-immutable-radix/v2`.
+This project is provided AS IS, keeping the original Hashicorp's license for obvious reasons. I will probably abandon
+it soon, so don't keep your hopes high. I will accept PRs, especially the ones that keep this fork in sync with the original.
 
-Documentation
-=============
+## Performance Impact
 
-The full documentation is available on [Godoc](http://godoc.org/github.com/hashicorp/go-immutable-radix).
+Who knows. While `bytes.Equal` and `bytes.Compare` might be faster with pure `[]byte`, using basic slice comparison
+shouldn't have a significant performance impact. But I would be happy to learn something if I'm wrong.
 
-Example
-=======
+I don't have any benchmarks because I just don't really care that much yet. I will be happy to see apples-to-apples
+if you run some benchmarks with it.
+
+## How to Use
+
+This is a drop-in replacement. The only thing you'll need to change is how you create a new tree:
+
+```go
+tree := iradix.New[byte, int]() // equivalent to `iradix.New[int]()
+```
+
+## Documentation
+
+The full documentation is available on [Godoc](http://godoc.org/github.com/AnatolyRugalev/go-iradix-generic).
+
+## Example
 
 Below is a simple example of usage
 
 ```go
 // Create a tree
-r := iradix.New[int]()
+r := iradix.New[byte, int]()
 r, _, _ = r.Insert([]byte("foo"), 1)
 r, _, _ = r.Insert([]byte("bar"), 2)
 r, _, _ = r.Insert([]byte("foobar"), 2)
@@ -50,7 +56,7 @@ Here is an example of performing a range scan of the keys.
 
 ```go
 // Create a tree
-r := iradix.New[int]()
+r := iradix.New[byte, int]()
 r, _, _ = r.Insert([]byte("001"), 1)
 r, _, _ = r.Insert([]byte("002"), 2)
 r, _, _ = r.Insert([]byte("005"), 5)

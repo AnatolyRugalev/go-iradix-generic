@@ -4,8 +4,7 @@
 package iradix
 
 import (
-	"bytes"
-	"strings"
+	"slices"
 
 	"github.com/hashicorp/golang-lru/v2/simplelru"
 )
@@ -26,15 +25,15 @@ const (
 // hash map is prefix-based lookups and ordered iteration. The immutability
 // means that it is safe to concurrently read from a Tree without any
 // coordination.
-type Tree[T any] struct {
-	root *Node[T]
+type Tree[K keyT, T any] struct {
+	root *Node[K, T]
 	size int
 }
 
 // New returns an empty Tree
-func New[T any]() *Tree[T] {
-	t := &Tree[T]{
-		root: &Node[T]{
+func New[K keyT, T any]() *Tree[K, T] {
+	t := &Tree[K, T]{
+		root: &Node[K, T]{
 			mutateCh: make(chan struct{}),
 		},
 	}
@@ -42,20 +41,20 @@ func New[T any]() *Tree[T] {
 }
 
 // Len is used to return the number of elements in the tree
-func (t *Tree[T]) Len() int {
+func (t *Tree[K, T]) Len() int {
 	return t.size
 }
 
 // Txn is a transaction on the tree. This transaction is applied
 // atomically and returns a new tree when committed. A transaction
 // is not thread safe, and should only be used by a single goroutine.
-type Txn[T any] struct {
+type Txn[K keyT, T any] struct {
 	// root is the modified root for the transaction.
-	root *Node[T]
+	root *Node[K, T]
 
 	// snap is a snapshot of the root node for use if we have to run the
 	// slow notify algorithm.
-	snap *Node[T]
+	snap *Node[K, T]
 
 	// size tracks the size of the tree as it is modified during the
 	// transaction.
@@ -66,7 +65,7 @@ type Txn[T any] struct {
 	// nodes for further writes and avoid unnecessary copies of nodes that
 	// have never been exposed outside the transaction. This will only hold
 	// up to defaultModifiedCache number of entries.
-	writable *simplelru.LRU[*Node[T], any]
+	writable *simplelru.LRU[*Node[K, T], any]
 
 	// trackChannels is used to hold channels that need to be notified to
 	// signal mutation of the tree. This will only hold up to
@@ -80,8 +79,8 @@ type Txn[T any] struct {
 }
 
 // Txn starts a new transaction that can be used to mutate the tree
-func (t *Tree[T]) Txn() *Txn[T] {
-	txn := &Txn[T]{
+func (t *Tree[K, T]) Txn() *Txn[K, T] {
+	txn := &Txn[K, T]{
 		root: t.root,
 		snap: t.root,
 		size: t.size,
@@ -91,11 +90,11 @@ func (t *Tree[T]) Txn() *Txn[T] {
 
 // Clone makes an independent copy of the transaction. The new transaction
 // does not track any nodes and has TrackMutate turned off. The cloned transaction will contain any uncommitted writes in the original transaction but further mutations to either will be independent and result in different radix trees on Commit. A cloned transaction may be passed to another goroutine and mutated there independently however each transaction may only be mutated in a single thread.
-func (t *Txn[T]) Clone() *Txn[T] {
+func (t *Txn[K, T]) Clone() *Txn[K, T] {
 	// reset the writable node cache to avoid leaking future writes into the clone
 	t.writable = nil
 
-	txn := &Txn[T]{
+	txn := &Txn[K, T]{
 		root: t.root,
 		snap: t.snap,
 		size: t.size,
@@ -106,7 +105,7 @@ func (t *Txn[T]) Clone() *Txn[T] {
 // TrackMutate can be used to toggle if mutations are tracked. If this is enabled
 // then notifications will be issued for affected internal nodes and leaves when
 // the transaction is committed.
-func (t *Txn[T]) TrackMutate(track bool) {
+func (t *Txn[K, T]) TrackMutate(track bool) {
 	t.trackMutate = track
 }
 
@@ -114,7 +113,7 @@ func (t *Txn[T]) TrackMutate(track bool) {
 // overflow flag if we can no longer track any more. This limits the amount of
 // state that will accumulate during a transaction and we have a slower algorithm
 // to switch to if we overflow.
-func (t *Txn[T]) trackChannel(ch chan struct{}) {
+func (t *Txn[K, T]) trackChannel(ch chan struct{}) {
 	// In overflow, make sure we don't store any more objects.
 	if t.trackOverflow {
 		return
@@ -146,10 +145,10 @@ func (t *Txn[T]) trackChannel(ch chan struct{}) {
 // modified during the course of the transaction, it is used in-place. Set
 // forLeafUpdate to true if you are getting a write node to update the leaf,
 // which will set leaf mutation tracking appropriately as well.
-func (t *Txn[T]) writeNode(n *Node[T], forLeafUpdate bool) *Node[T] {
+func (t *Txn[K, T]) writeNode(n *Node[K, T], forLeafUpdate bool) *Node[K, T] {
 	// Ensure the writable set exists.
 	if t.writable == nil {
-		lru, err := simplelru.NewLRU[*Node[T], any](defaultModifiedCache, nil)
+		lru, err := simplelru.NewLRU[*Node[K, T], any](defaultModifiedCache, nil)
 		if err != nil {
 			panic(err)
 		}
@@ -182,16 +181,16 @@ func (t *Txn[T]) writeNode(n *Node[T], forLeafUpdate bool) *Node[T] {
 	// safe to replace this leaf with another after you get your node for
 	// writing. You MUST replace it, because the channel associated with
 	// this leaf will be closed when this transaction is committed.
-	nc := &Node[T]{
+	nc := &Node[K, T]{
 		mutateCh: make(chan struct{}),
 		leaf:     n.leaf,
 	}
 	if n.prefix != nil {
-		nc.prefix = make([]byte, len(n.prefix))
+		nc.prefix = make([]K, len(n.prefix))
 		copy(nc.prefix, n.prefix)
 	}
 	if len(n.edges) != 0 {
-		nc.edges = make([]edge[T], len(n.edges))
+		nc.edges = make([]edge[K, T], len(n.edges))
 		copy(nc.edges, n.edges)
 	}
 
@@ -202,7 +201,7 @@ func (t *Txn[T]) writeNode(n *Node[T], forLeafUpdate bool) *Node[T] {
 
 // Visit all the nodes in the tree under n, and add their mutateChannels to the transaction
 // Returns the size of the subtree visited
-func (t *Txn[T]) trackChannelsAndCount(n *Node[T]) int {
+func (t *Txn[K, T]) trackChannelsAndCount(n *Node[K, T]) int {
 	// Count only leaf nodes
 	leaves := 0
 	if n.leaf != nil {
@@ -227,7 +226,7 @@ func (t *Txn[T]) trackChannelsAndCount(n *Node[T]) int {
 
 // mergeChild is called to collapse the given node with its child. This is only
 // called when the given node is not a leaf and has a single edge.
-func (t *Txn[T]) mergeChild(n *Node[T]) {
+func (t *Txn[K, T]) mergeChild(n *Node[K, T]) {
 	// Mark the child node as being mutated since we are about to abandon
 	// it. We don't need to mark the leaf since we are retaining it if it
 	// is there.
@@ -241,7 +240,7 @@ func (t *Txn[T]) mergeChild(n *Node[T]) {
 	n.prefix = concat(n.prefix, child.prefix)
 	n.leaf = child.leaf
 	if len(child.edges) != 0 {
-		n.edges = make([]edge[T], len(child.edges))
+		n.edges = make([]edge[K, T], len(child.edges))
 		copy(n.edges, child.edges)
 	} else {
 		n.edges = nil
@@ -249,7 +248,7 @@ func (t *Txn[T]) mergeChild(n *Node[T]) {
 }
 
 // insert does a recursive insertion
-func (t *Txn[T]) insert(n *Node[T], k, search []byte, v T) (*Node[T], T, bool) {
+func (t *Txn[K, T]) insert(n *Node[K, T], k, search []K, v T) (*Node[K, T], T, bool) {
 	var zero T
 
 	// Handle key exhaustion
@@ -262,7 +261,7 @@ func (t *Txn[T]) insert(n *Node[T], k, search []byte, v T) (*Node[T], T, bool) {
 		}
 
 		nc := t.writeNode(n, true)
-		nc.leaf = &leafNode[T]{
+		nc.leaf = &leafNode[K, T]{
 			mutateCh: make(chan struct{}),
 			key:      k,
 			val:      v,
@@ -275,11 +274,11 @@ func (t *Txn[T]) insert(n *Node[T], k, search []byte, v T) (*Node[T], T, bool) {
 
 	// No edge, create one
 	if child == nil {
-		e := edge[T]{
+		e := edge[K, T]{
 			label: search[0],
-			node: &Node[T]{
+			node: &Node[K, T]{
 				mutateCh: make(chan struct{}),
-				leaf: &leafNode[T]{
+				leaf: &leafNode[K, T]{
 					mutateCh: make(chan struct{}),
 					key:      k,
 					val:      v,
@@ -307,25 +306,25 @@ func (t *Txn[T]) insert(n *Node[T], k, search []byte, v T) (*Node[T], T, bool) {
 
 	// Split the node
 	nc := t.writeNode(n, false)
-	splitNode := &Node[T]{
+	splitNode := &Node[K, T]{
 		mutateCh: make(chan struct{}),
 		prefix:   search[:commonPrefix],
 	}
-	nc.replaceEdge(edge[T]{
+	nc.replaceEdge(edge[K, T]{
 		label: search[0],
 		node:  splitNode,
 	})
 
 	// Restore the existing child node
 	modChild := t.writeNode(child, false)
-	splitNode.addEdge(edge[T]{
+	splitNode.addEdge(edge[K, T]{
 		label: modChild.prefix[commonPrefix],
 		node:  modChild,
 	})
 	modChild.prefix = modChild.prefix[commonPrefix:]
 
 	// Create a new leaf node
-	leaf := &leafNode[T]{
+	leaf := &leafNode[K, T]{
 		mutateCh: make(chan struct{}),
 		key:      k,
 		val:      v,
@@ -339,9 +338,9 @@ func (t *Txn[T]) insert(n *Node[T], k, search []byte, v T) (*Node[T], T, bool) {
 	}
 
 	// Create a new edge for the node
-	splitNode.addEdge(edge[T]{
+	splitNode.addEdge(edge[K, T]{
 		label: search[0],
-		node: &Node[T]{
+		node: &Node[K, T]{
 			mutateCh: make(chan struct{}),
 			leaf:     leaf,
 			prefix:   search,
@@ -351,7 +350,7 @@ func (t *Txn[T]) insert(n *Node[T], k, search []byte, v T) (*Node[T], T, bool) {
 }
 
 // delete does a recursive deletion
-func (t *Txn[T]) delete(n *Node[T], search []byte) (*Node[T], *leafNode[T]) {
+func (t *Txn[K, T]) delete(n *Node[K, T], search []K) (*Node[K, T], *leafNode[K, T]) {
 	// Check for key exhaustion
 	if len(search) == 0 {
 		if !n.isLeaf() {
@@ -377,7 +376,7 @@ func (t *Txn[T]) delete(n *Node[T], search []byte) (*Node[T], *leafNode[T]) {
 	// Look for an edge
 	label := search[0]
 	idx, child := n.getEdge(label)
-	if child == nil || !bytes.HasPrefix(search, child.prefix) {
+	if child == nil || !keyHasPrefix(search, child.prefix) {
 		return nil, nil
 	}
 
@@ -407,7 +406,7 @@ func (t *Txn[T]) delete(n *Node[T], search []byte) (*Node[T], *leafNode[T]) {
 }
 
 // delete does a recursive deletion
-func (t *Txn[T]) deletePrefix(n *Node[T], search []byte) (*Node[T], int) {
+func (t *Txn[K, T]) deletePrefix(n *Node[K, T], search []K) (*Node[K, T], int) {
 	// Check for key exhaustion
 	if len(search) == 0 {
 		nc := t.writeNode(n, true)
@@ -423,13 +422,13 @@ func (t *Txn[T]) deletePrefix(n *Node[T], search []byte) (*Node[T], int) {
 	idx, child := n.getEdge(label)
 	// We make sure that either the child node's prefix starts with the search term, or the search term starts with the child node's prefix
 	// Need to do both so that we can delete prefixes that don't correspond to any node in the tree
-	if child == nil || (!bytes.HasPrefix(child.prefix, search) && !bytes.HasPrefix(search, child.prefix)) {
+	if child == nil || !keyHasPrefix(child.prefix, search) && !keyHasPrefix(search, child.prefix) {
 		return nil, 0
 	}
 
 	// Consume the search prefix
 	if len(child.prefix) > len(search) {
-		search = []byte("")
+		search = search[:0]
 	} else {
 		search = search[len(child.prefix):]
 	}
@@ -458,7 +457,7 @@ func (t *Txn[T]) deletePrefix(n *Node[T], search []byte) (*Node[T], int) {
 
 // Insert is used to add or update a given key. The return provides
 // the previous value and a bool indicating if any was set.
-func (t *Txn[T]) Insert(k []byte, v T) (T, bool) {
+func (t *Txn[K, T]) Insert(k []K, v T) (T, bool) {
 	newRoot, oldVal, didUpdate := t.insert(t.root, k, k, v)
 	if newRoot != nil {
 		t.root = newRoot
@@ -471,7 +470,7 @@ func (t *Txn[T]) Insert(k []byte, v T) (T, bool) {
 
 // Delete is used to delete a given key. Returns the old value if any,
 // and a bool indicating if the key was set.
-func (t *Txn[T]) Delete(k []byte) (T, bool) {
+func (t *Txn[K, T]) Delete(k []K) (T, bool) {
 	var zero T
 	newRoot, leaf := t.delete(t.root, k)
 	if newRoot != nil {
@@ -486,7 +485,7 @@ func (t *Txn[T]) Delete(k []byte) (T, bool) {
 
 // DeletePrefix is used to delete an entire subtree that matches the prefix
 // This will delete all nodes under that prefix
-func (t *Txn[T]) DeletePrefix(prefix []byte) bool {
+func (t *Txn[K, T]) DeletePrefix(prefix []K) bool {
 	newRoot, numDeletions := t.deletePrefix(t.root, prefix)
 	if newRoot != nil {
 		t.root = newRoot
@@ -500,25 +499,25 @@ func (t *Txn[T]) DeletePrefix(prefix []byte) bool {
 // Root returns the current root of the radix tree within this
 // transaction. The root is not safe across insert and delete operations,
 // but can be used to read the current state during a transaction.
-func (t *Txn[T]) Root() *Node[T] {
+func (t *Txn[K, T]) Root() *Node[K, T] {
 	return t.root
 }
 
 // Get is used to lookup a specific key, returning
 // the value and if it was found
-func (t *Txn[T]) Get(k []byte) (T, bool) {
+func (t *Txn[K, T]) Get(k []K) (T, bool) {
 	return t.root.Get(k)
 }
 
 // GetWatch is used to lookup a specific key, returning
 // the watch channel, value and if it was found
-func (t *Txn[T]) GetWatch(k []byte) (<-chan struct{}, T, bool) {
+func (t *Txn[K, T]) GetWatch(k []K) (<-chan struct{}, T, bool) {
 	return t.root.GetWatch(k)
 }
 
 // Commit is used to finalize the transaction and return a new tree. If mutation
 // tracking is turned on then notifications will also be issued.
-func (t *Txn[T]) Commit() *Tree[T] {
+func (t *Txn[K, T]) Commit() *Tree[K, T] {
 	nt := t.CommitOnly()
 	if t.trackMutate {
 		t.Notify()
@@ -528,8 +527,8 @@ func (t *Txn[T]) Commit() *Tree[T] {
 
 // CommitOnly is used to finalize the transaction and return a new tree, but
 // does not issue any notifications until Notify is called.
-func (t *Txn[T]) CommitOnly() *Tree[T] {
-	nt := &Tree[T]{t.root, t.size}
+func (t *Txn[K, T]) CommitOnly() *Tree[K, T] {
+	nt := &Tree[K, T]{t.root, t.size}
 	t.writable = nil
 	return nt
 }
@@ -537,7 +536,7 @@ func (t *Txn[T]) CommitOnly() *Tree[T] {
 // slowNotify does a complete comparison of the before and after trees in order
 // to trigger notifications. This doesn't require any additional state but it
 // is very expensive to compute.
-func (t *Txn[T]) slowNotify() {
+func (t *Txn[K, T]) slowNotify() {
 	snapIter := t.snap.rawIterator()
 	rootIter := t.root.rawIterator()
 	for snapIter.Front() != nil || rootIter.Front() != nil {
@@ -563,7 +562,7 @@ func (t *Txn[T]) slowNotify() {
 
 		// Do one string compare so we can check the various conditions
 		// below without repeating the compare.
-		cmp := strings.Compare(snapIter.Path(), rootIter.Path())
+		cmp := keyCompare(snapIter.Path(), rootIter.Path())
 
 		// If the snapshot is behind the root, then we must have deleted
 		// this node during the transaction.
@@ -600,7 +599,7 @@ func (t *Txn[T]) slowNotify() {
 // Notify is used along with TrackMutate to trigger notifications. This must
 // only be done once a transaction is committed via CommitOnly, and it is called
 // automatically by Commit.
-func (t *Txn[T]) Notify() {
+func (t *Txn[K, T]) Notify() {
 	if !t.trackMutate {
 		return
 	}
@@ -623,7 +622,7 @@ func (t *Txn[T]) Notify() {
 
 // Insert is used to add or update a given key. The return provides
 // the new tree, previous value and a bool indicating if any was set.
-func (t *Tree[T]) Insert(k []byte, v T) (*Tree[T], T, bool) {
+func (t *Tree[K, T]) Insert(k []K, v T) (*Tree[K, T], T, bool) {
 	txn := t.Txn()
 	old, ok := txn.Insert(k, v)
 	return txn.Commit(), old, ok
@@ -631,7 +630,7 @@ func (t *Tree[T]) Insert(k []byte, v T) (*Tree[T], T, bool) {
 
 // Delete is used to delete a given key. Returns the new tree,
 // old value if any, and a bool indicating if the key was set.
-func (t *Tree[T]) Delete(k []byte) (*Tree[T], T, bool) {
+func (t *Tree[K, T]) Delete(k []K) (*Tree[K, T], T, bool) {
 	txn := t.Txn()
 	old, ok := txn.Delete(k)
 	return txn.Commit(), old, ok
@@ -639,7 +638,7 @@ func (t *Tree[T]) Delete(k []byte) (*Tree[T], T, bool) {
 
 // DeletePrefix is used to delete all nodes starting with a given prefix. Returns the new tree,
 // and a bool indicating if the prefix matched any nodes
-func (t *Tree[T]) DeletePrefix(k []byte) (*Tree[T], bool) {
+func (t *Tree[K, T]) DeletePrefix(k []K) (*Tree[K, T], bool) {
 	txn := t.Txn()
 	ok := txn.DeletePrefix(k)
 	return txn.Commit(), ok
@@ -647,19 +646,19 @@ func (t *Tree[T]) DeletePrefix(k []byte) (*Tree[T], bool) {
 
 // Root returns the root node of the tree which can be used for richer
 // query operations.
-func (t *Tree[T]) Root() *Node[T] {
+func (t *Tree[K, T]) Root() *Node[K, T] {
 	return t.root
 }
 
 // Get is used to lookup a specific key, returning
 // the value and if it was found
-func (t *Tree[T]) Get(k []byte) (T, bool) {
+func (t *Tree[K, T]) Get(k []K) (T, bool) {
 	return t.root.Get(k)
 }
 
 // longestPrefix finds the length of the shared prefix
 // of two strings
-func longestPrefix(k1, k2 []byte) int {
+func longestPrefix[K keyT](k1, k2 []K) int {
 	max := len(k1)
 	if l := len(k2); l < max {
 		max = l
@@ -674,8 +673,8 @@ func longestPrefix(k1, k2 []byte) int {
 }
 
 // concat two byte slices, returning a third new copy
-func concat(a, b []byte) []byte {
-	c := make([]byte, len(a)+len(b))
+func concat[K keyT](a, b []K) []K {
+	c := make([]K, len(a)+len(b))
 	copy(c, a)
 	copy(c[len(a):], b)
 	return c

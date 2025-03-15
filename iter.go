@@ -5,18 +5,19 @@ package iradix
 
 import (
 	"bytes"
+	"slices"
 )
 
 // Iterator is used to iterate over a set of nodes
 // in pre-order
-type Iterator[T any] struct {
-	node  *Node[T]
-	stack []edges[T]
+type Iterator[K keyT, T any] struct {
+	node  *Node[K, T]
+	stack []edges[K, T]
 }
 
 // SeekPrefixWatch is used to seek the iterator to a given prefix
 // and returns the watch channel of the finest granularity
-func (i *Iterator[T]) SeekPrefixWatch(prefix []byte) (watch <-chan struct{}) {
+func (i *Iterator[K, T]) SeekPrefixWatch(prefix []K) (watch <-chan struct{}) {
 	// Wipe the stack
 	i.stack = nil
 	n := i.node
@@ -40,10 +41,10 @@ func (i *Iterator[T]) SeekPrefixWatch(prefix []byte) (watch <-chan struct{}) {
 		watch = n.mutateCh
 
 		// Consume the search prefix
-		if bytes.HasPrefix(search, n.prefix) {
+		if keyHasPrefix(search, n.prefix) {
 			search = search[len(n.prefix):]
 
-		} else if bytes.HasPrefix(n.prefix, search) {
+		} else if keyHasPrefix(n.prefix, search) {
 			i.node = n
 			return
 		} else {
@@ -54,11 +55,11 @@ func (i *Iterator[T]) SeekPrefixWatch(prefix []byte) (watch <-chan struct{}) {
 }
 
 // SeekPrefix is used to seek the iterator to a given prefix
-func (i *Iterator[T]) SeekPrefix(prefix []byte) {
+func (i *Iterator[K, T]) SeekPrefix(prefix []K) {
 	i.SeekPrefixWatch(prefix)
 }
 
-func (i *Iterator[T]) recurseMin(n *Node[T]) *Node[T] {
+func (i *Iterator[K, T]) recurseMin(n *Node[K, T]) *Node[K, T] {
 	// Traverse to the minimum child
 	if n.leaf != nil {
 		return n
@@ -80,13 +81,13 @@ func (i *Iterator[T]) recurseMin(n *Node[T]) *Node[T] {
 // greater or equal to the given key. There is no watch variant as it's hard to
 // predict based on the radix structure which node(s) changes might affect the
 // result.
-func (i *Iterator[T]) SeekLowerBound(key []byte) {
+func (i *Iterator[K, T]) SeekLowerBound(key []K) {
 	// Wipe the stack. Unlike Prefix iteration, we need to build the stack as we
 	// go because we need only a subset of edges of many nodes in the path to the
 	// leaf with the lower bound. Note that the iterator will still recurse into
 	// children that we don't traverse on the way to the reverse lower bound as it
 	// walks the stack.
-	i.stack = []edges[T]{}
+	i.stack = []edges[K, T]{}
 	// i.node starts off in the common case as pointing to the root node of the
 	// tree. By the time we return we have either found a lower bound and setup
 	// the stack to traverse all larger keys, or we have not and the stack and
@@ -97,14 +98,14 @@ func (i *Iterator[T]) SeekLowerBound(key []byte) {
 	i.node = nil
 	search := key
 
-	found := func(n *Node[T]) {
+	found := func(n *Node[K, T]) {
 		i.stack = append(
 			i.stack,
-			edges[T]{edge[T]{node: n}},
+			edges[K, T]{edge[K, T]{node: n}},
 		)
 	}
 
-	findMin := func(n *Node[T]) {
+	findMin := func(n *Node[K, T]) {
 		n = i.recurseMin(n)
 		if n != nil {
 			found(n)
@@ -116,9 +117,9 @@ func (i *Iterator[T]) SeekLowerBound(key []byte) {
 		// Compare current prefix with the search key's same-length prefix.
 		var prefixCmp int
 		if len(n.prefix) < len(search) {
-			prefixCmp = bytes.Compare(n.prefix, search[0:len(n.prefix)])
+			prefixCmp = keyCompare(n.prefix, search[0:len(n.prefix)])
 		} else {
-			prefixCmp = bytes.Compare(n.prefix, search)
+			prefixCmp = keyCompare(n.prefix, search)
 		}
 
 		if prefixCmp > 0 {
@@ -138,7 +139,7 @@ func (i *Iterator[T]) SeekLowerBound(key []byte) {
 
 		// Prefix is equal, we are still heading for an exact match. If this is a
 		// leaf and an exact match we're done.
-		if n.leaf != nil && bytes.Equal(n.leaf.key, key) {
+		if n.leaf != nil && keyEqual(n.leaf.key, key) {
 			found(n)
 			return
 		}
@@ -174,11 +175,11 @@ func (i *Iterator[T]) SeekLowerBound(key []byte) {
 }
 
 // Next returns the next node in order
-func (i *Iterator[T]) Next() ([]byte, T, bool) {
+func (i *Iterator[K, T]) Next() ([]K, T, bool) {
 	var zero T
 	// Initialize our stack if needed
 	if i.stack == nil && i.node != nil {
-		i.stack = []edges[T]{{edge[T]{node: i.node}}}
+		i.stack = []edges[K, T]{{edge[K, T]{node: i.node}}}
 	}
 
 	for len(i.stack) > 0 {

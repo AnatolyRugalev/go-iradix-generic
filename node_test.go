@@ -8,7 +8,7 @@ import (
 )
 
 func TestNodeWalk(t *testing.T) {
-	r := New[any]()
+	r := New[byte, any]()
 	keys := []string{"001", "002", "005", "010", "100"}
 	for _, k := range keys {
 		r, _, _ = r.Insert([]byte(k), nil)
@@ -29,7 +29,7 @@ func TestNodeWalk(t *testing.T) {
 }
 
 func TestNodeWalkBackwards(t *testing.T) {
-	r := New[any]()
+	r := New[byte, any]()
 	keys := []string{"001", "002", "005", "010", "100"}
 	for _, k := range keys {
 		r, _, _ = r.Insert([]byte(k), nil)

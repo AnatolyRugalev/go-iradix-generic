@@ -3,22 +3,20 @@
 
 package iradix
 
-import "bytes"
-
 // PathIterator is used to iterate over a set of nodes from the root
 // down to a specified path. This will iterate over the same values that
 // the Node.WalkPath method will.
-type PathIterator[T any] struct {
-	node *Node[T]
-	path []byte
+type PathIterator[K keyT, T any] struct {
+	node *Node[K, T]
+	path []K
 }
 
 // Next returns the next node in order
-func (i *PathIterator[T]) Next() ([]byte, T, bool) {
+func (i *PathIterator[K, T]) Next() ([]K, T, bool) {
 	// This is mostly just an asynchronous implementation of the WalkPath
 	// method on the node.
 	var zero T
-	var leaf *leafNode[T]
+	var leaf *leafNode[K, T]
 
 	for leaf == nil && i.node != nil {
 		// visit the leaf values if any
@@ -36,7 +34,7 @@ func (i *PathIterator[T]) Next() ([]byte, T, bool) {
 	return nil, zero, false
 }
 
-func (i *PathIterator[T]) iterate() {
+func (i *PathIterator[K, T]) iterate() {
 	// Check for key exhaustion
 	if len(i.path) == 0 {
 		i.node = nil
@@ -50,7 +48,7 @@ func (i *PathIterator[T]) iterate() {
 	}
 
 	// Consume the search prefix
-	if bytes.HasPrefix(i.path, i.node.prefix) {
+	if keyHasPrefix(i.path, i.node.prefix) {
 		i.path = i.path[len(i.node.prefix):]
 	} else {
 		// there are no more nodes to iterate through so
