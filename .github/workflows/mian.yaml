@@ -32,7 +32,6 @@ jobs:
       - name: go test
         uses: robherley/go-test-action@v0
         with:
-          moduleDirectory: benchmark
           testArguments: -race ./...
 
   run-bench:
