@@ -65,14 +65,17 @@ func (i *rawIterator[K, T]) Next() {
 			i.stack = i.stack[:n-1]
 		}
 
+		path := make([]K, 0, len(last.path)+len(elem.prefix))
+		path = append(path, last.path...)
+		path = append(path, elem.prefix...)
+
 		// Push the edges onto the frontier.
 		if len(elem.edges) > 0 {
-			path := append(last.path, elem.prefix...)
 			i.stack = append(i.stack, rawStackEntry[K, T]{path, elem.edges})
 		}
 
 		i.pos = elem
-		i.path = append(last.path, elem.prefix...)
+		i.path = path
 		return
 	}
 

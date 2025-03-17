@@ -36,13 +36,13 @@ func (i *Iterator[K, T]) SeekPrefixWatch(prefix []K) (watch <-chan struct{}) {
 		watch = n.mutateCh
 
 		// Consume the search prefix
-		if keyHasPrefix(search, n.prefix) {
+		switch {
+		case keyHasPrefix(search, n.prefix):
 			search = search[len(n.prefix):]
-
-		} else if keyHasPrefix(n.prefix, search) {
+		case keyHasPrefix(n.prefix, search):
 			i.node = n
 			return
-		} else {
+		default:
 			i.node = nil
 			return
 		}
@@ -154,8 +154,8 @@ func (i *Iterator[K, T]) SeekLowerBound(key []K) {
 		}
 
 		// Otherwise, take the lower bound next edge.
-		idx, lbNode := n.getLowerBoundEdge(search[0])
-		if lbNode == nil {
+		idx, exact := n.findLowerBoundEdge(search[0])
+		if !exact {
 			return
 		}
 
@@ -165,7 +165,7 @@ func (i *Iterator[K, T]) SeekLowerBound(key []K) {
 		}
 
 		// Recurse
-		n = lbNode
+		n = n.edges[idx].node
 	}
 }
 
