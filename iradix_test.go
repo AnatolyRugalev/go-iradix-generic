@@ -4,76 +4,75 @@
 package iradix
 
 import (
+	"bytes"
 	"fmt"
+	"math/rand"
 	"reflect"
+	"slices"
 	"sort"
+	"strings"
 	"testing"
 	"testing/quick"
-
-	"github.com/hashicorp/go-uuid"
-	"slices"
+	"time"
 )
 
-func CopyTree[K keyT, T any](t *Tree[K, T]) *Tree[K, T] {
+func copyTree[K keyT, T any](t *Tree[K, T]) *Tree[K, T] {
 	nt := &Tree[K, T]{
-		root: CopyNode(t.root),
-		size: t.size,
+		options: t.options,
+		root:    copyNode(t.root),
+		size:    t.size,
 	}
 	return nt
 }
 
-func CopyNode[K keyT, T any](n *Node[K, T]) *Node[K, T] {
+func copyNode[K keyT, T any](n *Node[K, T]) *Node[K, T] {
 	nn := new(Node[K, T])
 	if n.mutateCh != nil {
 		nn.mutateCh = n.mutateCh
 	}
 	if n.prefix != nil {
-		nn.prefix = make([]K, len(n.prefix))
-		copy(nn.prefix, n.prefix)
+		nn.prefix = slices.Clone(n.prefix)
 	}
 	if n.leaf != nil {
-		nn.leaf = CopyLeaf(n.leaf)
+		nn.leaf = copyLeaf(n.leaf)
 	}
 	if len(n.edges) != 0 {
 		nn.edges = make([]edge[K, T], len(n.edges))
 		for idx, ed := range n.edges {
 			nn.edges[idx].label = ed.label
-			nn.edges[idx].node = CopyNode(ed.node)
+			nn.edges[idx].node = copyNode(ed.node)
 		}
 	}
 	return nn
 }
 
-func CopyLeaf[K keyT, T any](l *leafNode[K, T]) *leafNode[K, T] {
-	ll := &leafNode[K, T]{
+func copyLeaf[K keyT, T any](l *leafNode[K, T]) *leafNode[K, T] {
+	return &leafNode[K, T]{
 		mutateCh: l.mutateCh,
 		key:      l.key,
 		val:      l.val,
 	}
-	return ll
 }
 
 func TestRadix_HugeTxn(t *testing.T) {
+	seedRand()
+	n := int(1e6)
 	r := New[byte, int]()
 
-	// Insert way more nodes than the cache can fit
 	txn1 := r.Txn()
-	var expect []string
-	for i := 0; i < defaultModifiedCache*100; i++ {
-		gen, err := uuid.GenerateUUID()
-		if err != nil {
-			t.Fatalf("err: %v", err)
-		}
-		txn1.Insert([]byte(gen), i)
+	var expect [][]byte
+	for i := 0; i < n; i++ {
+		gen := randomBytes(16)
+		txn1.Insert(gen, i)
 		expect = append(expect, gen)
 	}
 	r = txn1.Commit()
-	sort.Strings(expect)
+	slices.SortFunc(expect, bytes.Compare)
 
 	// Collect the output, should be sorted
-	var out []string
+	var out [][]byte
 	fn := func(k []byte, v int) bool {
-		out = append(out, string(k))
+		out = append(out, k)
 		return false
 	}
 	r.Root().Walk(fn)
@@ -83,21 +82,57 @@ func TestRadix_HugeTxn(t *testing.T) {
 		t.Fatalf("length mis-match: %d vs %d", len(out), len(expect))
 	}
 	for i := 0; i < len(out); i++ {
-		if out[i] != expect[i] {
+		if !bytes.Equal(out[i], expect[i]) {
 			t.Fatalf("mis-match: %v %v", out[i], expect[i])
 		}
 	}
 }
 
+var (
+	seed int64
+	rng  *rand.Rand
+)
+
+// seedRand seeds RNG for tests.
+// it's kept in a dedicated func, so we can call `seedRand` at the beginning of the test for reproducibility.
+func seedRand(s ...int64) {
+	if len(s) == 0 {
+		s = []int64{time.Now().UnixNano()}
+	}
+
+	rng = rand.New(rand.NewSource(seed))
+	seed = s[0]
+}
+
+func randomBytes(n int) []byte {
+	gen := make([]byte, n)
+	for i := 0; i < n; i++ {
+		gen[i] = byte(rng.Intn(256))
+	}
+	return gen
+}
+
+func randomHexString(n int) string {
+	return fmt.Sprintf("%x", randomBytes(n))
+}
+
 func TestRadix(t *testing.T) {
-	var min, max string
-	inp := make(map[string]int)
-	for i := 0; i < 1000; i++ {
-		gen, err := uuid.GenerateUUID()
-		if err != nil {
-			t.Fatalf("err: %v", err)
+	seedRand()
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("seed: %d", seed)
 		}
-		inp[gen] = i
+	})
+	var min, max string
+	type input struct {
+		key   string
+		value int
+	}
+	size := 1000
+	inp := make([]input, size)
+	for i := 0; i < size; i++ {
+		gen := randomHexString(16)
+		inp[i] = input{key: gen, value: i}
 		if gen < min || i == 0 {
 			min = gen
 		}
@@ -107,29 +142,28 @@ func TestRadix(t *testing.T) {
 	}
 
 	r := New[byte, int]()
-	rCopy := CopyTree(r)
-	for k, v := range inp {
-		newR, _, _ := r.Insert([]byte(k), v)
-		if !reflect.DeepEqual(r, rCopy) {
-			t.Errorf("r: %#v rc: %#v", r, rCopy)
+	rCopy := copyTree(r)
+	for _, i := range inp {
+		newR, _, _ := r.Insert([]byte(i.key), i.value)
+		if !reflect.DeepEqual(r.root, rCopy.root) {
 			t.Errorf("r: %#v rc: %#v", r.root, rCopy.root)
 			t.Fatalf("structure modified %d", newR.Len())
 		}
 		r = newR
-		rCopy = CopyTree(r)
+		rCopy = copyTree(r)
 	}
 
 	if r.Len() != len(inp) {
 		t.Fatalf("bad length: %v %v", r.Len(), len(inp))
 	}
 
-	for k, v := range inp {
-		out, ok := r.Get([]byte(k))
+	for _, i := range inp {
+		out, ok := r.Get([]byte(i.key))
 		if !ok {
-			t.Fatalf("missing key: %v", k)
+			t.Fatalf("missing key: %v", i.key)
 		}
-		if out != v {
-			t.Fatalf("value mis-match: %v %v", out, v)
+		if out != i.value {
+			t.Fatalf("value mis-match: %v %v", out, i.value)
 		}
 	}
 
@@ -145,23 +179,23 @@ func TestRadix(t *testing.T) {
 
 	// Copy the full tree before delete
 	orig := r
-	origCopy := CopyTree(r)
+	origCopy := copyTree(r)
 
-	for k, v := range inp {
-		tree, out, ok := r.Delete([]byte(k))
+	for _, i := range inp {
+		tree, out, ok := r.Delete([]byte(i.key))
 		r = tree
 		if !ok {
-			t.Fatalf("missing key: %v", k)
+			t.Fatalf("missing key: %v", i.key)
 		}
-		if out != v {
-			t.Fatalf("value mis-match: %v %v", out, v)
+		if out != i.value {
+			t.Fatalf("value mis-match: %v %v", out, i.value)
 		}
 	}
 	if r.Len() != 0 {
 		t.Fatalf("bad length: %v", r.Len())
 	}
 
-	if !reflect.DeepEqual(orig, origCopy) {
+	if !reflect.DeepEqual(orig.root, origCopy.root) {
 		t.Fatalf("structure modified")
 	}
 }
@@ -422,6 +456,7 @@ func TestTrackMutate_DeletePrefix(t *testing.T) {
 }
 
 func verifyTree[T any](t *testing.T, expected []string, r *Tree[byte, T]) {
+	t.Helper()
 	root := r.Root()
 	var out []string
 	fn := func(k []byte, v T) bool {
@@ -1242,18 +1277,19 @@ func TestTrackMutate_HugeTxn(t *testing.T) {
 		"foobar",
 		"nochange",
 	}
-	for i := 0; i < defaultModifiedCache; i++ {
+	n := 2 << 12
+	for i := 0; i < n; i++ {
 		key := fmt.Sprintf("aaa%d", i)
 		r, _, _ = r.Insert([]byte(key), nil)
 	}
 	for _, k := range keys {
 		r, _, _ = r.Insert([]byte(k), nil)
 	}
-	for i := 0; i < defaultModifiedCache; i++ {
+	for i := 0; i < n; i++ {
 		key := fmt.Sprintf("zzz%d", i)
 		r, _, _ = r.Insert([]byte(key), nil)
 	}
-	if r.Len() != len(keys)+2*defaultModifiedCache {
+	if r.Len() != len(keys)+2*n {
 		t.Fatalf("bad len: %v %v", r.Len(), len(keys))
 	}
 
@@ -1300,11 +1336,11 @@ func TestTrackMutate_HugeTxn(t *testing.T) {
 	// Add new nodes on both sides of the tree and delete enough nodes to
 	// overflow the tracking.
 	txn.Insert([]byte("aaa"), nil)
-	for i := 0; i < defaultModifiedCache; i++ {
+	for i := 0; i < n; i++ {
 		key := fmt.Sprintf("aaa%d", i)
 		txn.Delete([]byte(key))
 	}
-	for i := 0; i < defaultModifiedCache; i++ {
+	for i := 0; i < n; i++ {
 		key := fmt.Sprintf("zzz%d", i)
 		txn.Delete([]byte(key))
 	}
@@ -1854,5 +1890,163 @@ func TestClone(t *testing.T) {
 	}
 	if val, ok := t2.Get([]byte("baz")); !ok || val != 43 {
 		t.Fatalf("bad baz in t2")
+	}
+}
+
+type benchProfile struct {
+	name        string
+	depth       int
+	cardinality int
+	opts        []Option
+	tests       []string
+}
+
+var (
+	matrix = []benchProfile{
+		{
+			name:        "256*16",
+			depth:       16,
+			cardinality: 256,
+			opts:        nil,
+			tests:       []string{"*"},
+		},
+	}
+)
+
+func makeTree(keys [][]uint64, opts ...Option) *Tree[uint64, struct{}] {
+	tree := New[uint64, struct{}](opts...)
+	tx := tree.Txn()
+	for _, key := range keys {
+		tx.Insert(key, struct{}{})
+	}
+	tree = tx.Commit()
+	return tree
+}
+
+func randomNumbers(cardinality, size int) []uint64 {
+	numbers := make([]uint64, size)
+	for i := 0; i < size; i++ {
+		numbers[i] = uint64(rng.Int63n(int64(cardinality)))
+	}
+	return numbers
+}
+
+func makeKeys(cardinality, depth, n int) [][]uint64 {
+	keys := make([][]uint64, n)
+	for i := 0; i < n; i++ {
+		keys[i] = randomNumbers(cardinality, depth)
+	}
+	return keys
+}
+
+func (p benchProfile) run(b *testing.B, name string, fn func(b *testing.B)) {
+	fullName := b.Name() + "/" + name
+	shouldRun := p.tests[0] == "*" || slices.ContainsFunc(p.tests, func(suffix string) bool {
+		return strings.HasSuffix(fullName, suffix)
+	})
+	if !shouldRun {
+		return
+	}
+	b.Run(name, func(b *testing.B) {
+		b.ReportAllocs()
+		fn(b)
+	})
+}
+
+func BenchmarkTxn(b *testing.B) {
+	seedRand()
+	for _, profile := range matrix {
+		b.Run(profile.name, func(b *testing.B) {
+			profile.run(b, "Get", func(b *testing.B) {
+				keys := makeKeys(profile.cardinality, profile.depth, b.N)
+				tree := makeTree(keys, profile.opts...)
+				tx := tree.Txn()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					tx.Get(keys[i])
+				}
+			})
+			profile.run(b, "Insert/Random", func(b *testing.B) {
+				keys := makeKeys(profile.cardinality, profile.depth, b.N)
+				tree := makeTree(nil, profile.opts...)
+				tx := tree.Txn()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					tx.Insert(keys[i], struct{}{})
+				}
+			})
+			profile.run(b, "Insert/Sequential", func(b *testing.B) {
+				keys := makeKeys(profile.cardinality, profile.depth, b.N)
+				slices.SortFunc(keys, slices.Compare)
+				tree := makeTree(nil, profile.opts...)
+				tx := tree.Txn()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					tx.Insert(keys[i], struct{}{})
+				}
+			})
+			profile.run(b, "Insert/Reverse", func(b *testing.B) {
+				keys := makeKeys(profile.cardinality, profile.depth, b.N)
+				slices.SortFunc(keys, slices.Compare)
+				slices.Reverse(keys)
+				tree := makeTree(nil, profile.opts...)
+				tx := tree.Txn()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					tx.Insert(keys[i], struct{}{})
+				}
+			})
+			profile.run(b, "Update/First", func(b *testing.B) {
+				keys := makeKeys(profile.cardinality, profile.depth, b.N)
+				tree := makeTree(keys, profile.opts...)
+				tx := tree.Txn()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					tx.Insert(keys[i], struct{}{})
+				}
+			})
+			profile.run(b, "Update/Second", func(b *testing.B) {
+				keys := makeKeys(profile.cardinality, profile.depth, b.N)
+				tree := makeTree(keys, profile.opts...)
+				tx := tree.Txn()
+				for i := 0; i < b.N; i++ {
+					tx.Insert(keys[i], struct{}{})
+				}
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					tx.Insert(keys[i], struct{}{})
+				}
+			})
+			profile.run(b, "Delete/Random", func(b *testing.B) {
+				keys := makeKeys(profile.cardinality, profile.depth, b.N)
+				tree := makeTree(keys, profile.opts...)
+				tx := tree.Txn()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					tx.Delete(keys[i])
+				}
+			})
+			profile.run(b, "Delete/Sequential", func(b *testing.B) {
+				keys := makeKeys(profile.cardinality, profile.depth, b.N)
+				tree := makeTree(keys, profile.opts...)
+				slices.SortFunc(keys, slices.Compare)
+				tx := tree.Txn()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					tx.Delete(keys[i])
+				}
+			})
+			profile.run(b, "Delete/Reverse", func(b *testing.B) {
+				keys := makeKeys(profile.cardinality, profile.depth, b.N)
+				tree := makeTree(keys, profile.opts...)
+				slices.SortFunc(keys, slices.Compare)
+				slices.Reverse(keys)
+				tx := tree.Txn()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					tx.Delete(keys[0])
+				}
+			})
+		})
 	}
 }

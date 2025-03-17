@@ -3,8 +3,6 @@
 
 package iradix
 
-import "sort"
-
 type edges[K keyT, T any] []edge[K, T]
 
 func (e edges[K, T]) Len() int {
@@ -19,6 +17,5 @@ func (e edges[K, T]) Swap(i, j int) {
 	e[i], e[j] = e[j], e[i]
 }
 
-func (e edges[K, T]) Sort() {
-	sort.Sort(e)
+type EdgeIndexer[K keyT] interface {
 }

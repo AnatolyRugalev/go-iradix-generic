@@ -46,63 +46,56 @@ func (n *Node[K, T]) isLeaf() bool {
 	return n.leaf != nil
 }
 
-func (n *Node[K, T]) addEdge(e edge[K, T]) {
+func (n *Node[K, T]) findEdge(label K) (idx int, ok bool) {
+	size := len(n.edges)
+	idx = sort.Search(size, func(i int) bool {
+		return n.edges[i].label >= label
+	})
+	ok = idx != size && n.edges[idx].label == label
+	return
+}
+
+func (n *Node[K, T]) findLowerBoundEdge(label K) (int, bool) {
 	num := len(n.edges)
 	idx := sort.Search(num, func(i int) bool {
-		return n.edges[i].label >= e.label
+		return n.edges[i].label >= label
 	})
+	return idx, idx != num
+}
+
+func (n *Node[K, T]) addEdge(e edge[K, T]) {
+	idx, exact := n.findLowerBoundEdge(e.label)
 	n.edges = append(n.edges, e)
-	if idx != num {
-		copy(n.edges[idx+1:], n.edges[idx:num])
+	if exact {
+		copy(n.edges[idx+1:], n.edges[idx:])
 		n.edges[idx] = e
 	}
 }
 
 func (n *Node[K, T]) replaceEdge(e edge[K, T]) {
-	num := len(n.edges)
-	idx := sort.Search(num, func(i int) bool {
-		return n.edges[i].label >= e.label
-	})
-	if idx < num && n.edges[idx].label == e.label {
-		n.edges[idx].node = e.node
-		return
+	idx, ok := n.findEdge(e.label)
+	if !ok {
+		panic("replacing missing edge")
 	}
-	panic("replacing missing edge")
+	n.edges[idx].node = e.node
 }
 
 func (n *Node[K, T]) getEdge(label K) (int, *Node[K, T]) {
-	num := len(n.edges)
-	idx := sort.Search(num, func(i int) bool {
-		return n.edges[i].label >= label
-	})
-	if idx < num && n.edges[idx].label == label {
-		return idx, n.edges[idx].node
+	idx, ok := n.findEdge(label)
+	if !ok {
+		return -1, nil
 	}
-	return -1, nil
-}
-
-func (n *Node[K, T]) getLowerBoundEdge(label K) (int, *Node[K, T]) {
-	num := len(n.edges)
-	idx := sort.Search(num, func(i int) bool {
-		return n.edges[i].label >= label
-	})
-	// we want lower bound behavior so return even if it's not an exact match
-	if idx < num {
-		return idx, n.edges[idx].node
-	}
-	return -1, nil
+	return idx, n.edges[idx].node
 }
 
 func (n *Node[K, T]) delEdge(label K) {
-	num := len(n.edges)
-	idx := sort.Search(num, func(i int) bool {
-		return n.edges[i].label >= label
-	})
-	if idx < num && n.edges[idx].label == label {
-		copy(n.edges[idx:], n.edges[idx+1:])
-		n.edges[len(n.edges)-1] = edge[K, T]{}
-		n.edges = n.edges[:len(n.edges)-1]
+	idx, ok := n.findEdge(label)
+	if !ok {
+		return
 	}
+	copy(n.edges[idx:], n.edges[idx+1:])
+	n.edges[len(n.edges)-1] = edge[K, T]{}
+	n.edges = n.edges[:len(n.edges)-1]
 }
 
 func (n *Node[K, T]) GetWatch(k []K) (<-chan struct{}, T, bool) {
