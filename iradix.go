@@ -472,7 +472,7 @@ func (t *Txn[K, T]) DeletePrefix(prefix []K) bool {
 	newRoot, numDeletions := t.deletePrefix(t.root, prefix)
 	if newRoot != nil {
 		t.root = newRoot
-		t.size = t.size - numDeletions
+		t.size -= numDeletions
 		return true
 	}
 	return false
@@ -648,12 +648,12 @@ func (t *Tree[K, T]) Get(k []K) (T, bool) {
 // longestPrefix finds the length of the shared prefix
 // of two strings
 func longestPrefix[K keyT](k1, k2 []K) int {
-	max := len(k1)
-	if l := len(k2); l < max {
-		max = l
+	size1 := len(k1)
+	if l := len(k2); l < size1 {
+		size1 = l
 	}
 	var i int
-	for i = 0; i < max; i++ {
+	for i = 0; i < size1; i++ {
 		if k1[i] != k2[i] {
 			break
 		}

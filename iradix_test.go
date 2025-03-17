@@ -71,7 +71,7 @@ func TestRadix_HugeTxn(t *testing.T) {
 
 	// Collect the output, should be sorted
 	var out [][]byte
-	fn := func(k []byte, v int) bool {
+	fn := func(k []byte, _ int) bool {
 		out = append(out, k)
 		return false
 	}
@@ -123,7 +123,7 @@ func TestRadix(t *testing.T) {
 			t.Logf("seed: %d", seed)
 		}
 	})
-	var min, max string
+	var minKey, maxKey string
 	type input struct {
 		key   string
 		value int
@@ -133,11 +133,11 @@ func TestRadix(t *testing.T) {
 	for i := 0; i < size; i++ {
 		gen := randomHexString(16)
 		inp[i] = input{key: gen, value: i}
-		if gen < min || i == 0 {
-			min = gen
+		if gen < minKey || i == 0 {
+			minKey = gen
 		}
-		if gen > max || i == 0 {
-			max = gen
+		if gen > maxKey || i == 0 {
+			maxKey = gen
 		}
 	}
 
@@ -169,12 +169,12 @@ func TestRadix(t *testing.T) {
 
 	// Check min and max
 	outMin, _, _ := r.Root().Minimum()
-	if string(outMin) != min {
-		t.Fatalf("bad minimum: %v %v", outMin, min)
+	if string(outMin) != minKey {
+		t.Fatalf("bad minimum: %v %v", outMin, minKey)
 	}
 	outMax, _, _ := r.Root().Maximum()
-	if string(outMax) != max {
-		t.Fatalf("bad maximum: %v %v", outMax, max)
+	if string(outMax) != maxKey {
+		t.Fatalf("bad maximum: %v %v", outMax, maxKey)
 	}
 
 	// Copy the full tree before delete
@@ -265,7 +265,7 @@ func TestDeletePrefix(t *testing.T) {
 		expectedOut []string
 	}
 
-	//various test cases where DeletePrefix should succeed
+	// various test cases where DeletePrefix should succeed
 	cases := []exp{
 		{
 			"prefix not a node in tree",
@@ -359,7 +359,7 @@ func TestDeletePrefix(t *testing.T) {
 			}
 
 			verifyTree(t, testCase.expectedOut, r)
-			//Delete a non-existant node
+			// Delete a non-existant node
 			r, ok = r.DeletePrefix([]byte("CCCCC"))
 			if ok {
 				t.Fatalf("Expected DeletePrefix to return false ")
@@ -459,7 +459,7 @@ func verifyTree[T any](t *testing.T, expected []string, r *Tree[byte, T]) {
 	t.Helper()
 	root := r.Root()
 	var out []string
-	fn := func(k []byte, v T) bool {
+	fn := func(k []byte, _ T) bool {
 		out = append(out, string(k))
 		return false
 	}
@@ -586,7 +586,7 @@ func TestWalkPrefix(t *testing.T) {
 	root := r.Root()
 	for _, test := range cases {
 		var out []string
-		fn := func(k []byte, v interface{}) bool {
+		fn := func(k []byte, _ interface{}) bool {
 			out = append(out, string(k))
 			return false
 		}
@@ -659,7 +659,7 @@ func TestWalkPath(t *testing.T) {
 	root := r.Root()
 	for _, test := range cases {
 		var out []string
-		fn := func(k []byte, v interface{}) bool {
+		fn := func(k []byte, _ interface{}) bool {
 			out = append(out, string(k))
 			return false
 		}
@@ -780,7 +780,7 @@ func TestMergeChildNilEdges(t *testing.T) {
 
 	root := r.Root()
 	var out []string
-	fn := func(k []byte, v int) bool {
+	fn := func(k []byte, _ int) bool {
 		out = append(out, string(k))
 		return false
 	}

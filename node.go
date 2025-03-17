@@ -196,9 +196,8 @@ func (n *Node[K, T]) Maximum() ([]K, T, bool) {
 		}
 		if n.isLeaf() {
 			return n.leaf.key, n.leaf.val, true
-		} else {
-			break
 		}
+		break
 	}
 	var zero T
 	return nil, zero, false
@@ -243,6 +242,7 @@ func (n *Node[K, T]) WalkBackwards(fn WalkFn[K, T]) {
 // WalkPrefix is used to walk the tree under a prefix
 func (n *Node[K, T]) WalkPrefix(prefix []K, fn WalkFn[K, T]) {
 	search := prefix
+loop:
 	for {
 		// Check for key exhaustion
 		if len(search) == 0 {
@@ -256,16 +256,14 @@ func (n *Node[K, T]) WalkPrefix(prefix []K, fn WalkFn[K, T]) {
 			break
 		}
 
-		// Consume the search prefix
-		if keyHasPrefix(search, n.prefix) {
+		switch {
+		case keyHasPrefix(search, n.prefix):
 			search = search[len(n.prefix):]
-
-		} else if keyHasPrefix(n.prefix, search) {
-			// Child may be under our search prefix
+		case keyHasPrefix(n.prefix, search):
 			recursiveWalk(n, fn)
 			return
-		} else {
-			break
+		default:
+			break loop
 		}
 	}
 }
