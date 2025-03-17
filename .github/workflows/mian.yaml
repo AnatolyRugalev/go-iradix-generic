@@ -44,7 +44,8 @@ jobs:
         cache-dependency-path: |
           go.sum
           benchmark/go.sum
-    - name: install test-report
-      run: go install github.com/blugnu/test-report@v0.1.5
-    - name: go test -bench
-      run: cd benchmark && (go test -bench ./... -json | test-report) && cat test-report.md >> $GITHUB_STEP_SUMMARY
+    - name: go test
+      uses: robherley/go-test-action@v0
+      with:
+        moduleDirectory: benchmark
+        testArguments: -bench ./...
