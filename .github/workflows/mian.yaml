@@ -41,6 +41,8 @@ jobs:
     - uses: actions/setup-go@v5
       with:
         go-version: 1.21
-        cache-dependency-path: benchmark/go.sum
+        cache-dependency-path: |
+          go.sum
+          benchmark/go.sum
     - name: go test -bench
       run: cd benchmark && go test -bench ./...
