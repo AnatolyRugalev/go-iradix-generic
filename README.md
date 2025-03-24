@@ -1,20 +1,15 @@
 # go-iradix-generic
 
-[![Run Tests](https://github.com/AnatolyRugalev/go-iradix-generic/actions/workflows/mian.yaml/badge.svg)](https://github.com/AnatolyRugalev/go-iradix-generic/actions/workflows/mian.yaml)
+[![tests](https://github.com/AnatolyRugalev/go-iradix-generic/actions/workflows/mian.yaml/badge.svg)](https://github.com/AnatolyRugalev/go-iradix-generic/actions/workflows/mian.yaml)
 
 This is a hard fork of Hashicorp's [go-immutable-radix](https://github.com/hashicorp/go-immutable-radix) package.
 
-The only difference from the original is a swap of `[]byte` keys to `[]constraints.Ordered` generic interface.
-
-## Motivation
-
-For the purpose of one of my projects, using `[]byte` for keys is unnecessary and somewhat wasteful. Hashicorp's
-package is a perfect fit for my needs, but `[]byte` was getting in a way, so I decided to fork it.
+The main difference from the original is the support for non-byte keys using Go generics.
 
 ## State of the Fork
 
-This project is provided AS IS, keeping the original Hashicorp's license for obvious reasons. I will probably abandon
-it soon, so don't keep your hopes high. I will accept PRs, especially the ones that keep this fork in sync with the original.
+This project is provided AS IS, keeping the original Hashicorp's license. I will probably abandon it soon, so don't keep your hopes high.
+I will accept PRs, especially the ones that keep this fork in sync with the original.
 
 ## Performance Impact
 
@@ -63,14 +58,12 @@ By removing LRU caching, which added overhead, it achieves faster execution and 
 This is a drop-in replacement. The only thing you'll need to change is how you create a new tree:
 
 ```go
-tree := iradix.New[byte, int]() // equivalent to `iradix.New[int]()
+tree := iradix.New[byte, int]() // equivalent to `iradix.New[int]()` when using hashicorp's package
 ```
-
-## Original Documentation
 
 The full documentation is available on [Godoc](http://godoc.org/github.com/AnatolyRugalev/go-iradix-generic).
 
-## Example
+### Examples
 
 Below is a simple example of usage
 
@@ -112,4 +105,3 @@ for key, _, ok := it.Next(); ok; key, _, ok = it.Next() {
 //  005
 //  010
 ```
-
