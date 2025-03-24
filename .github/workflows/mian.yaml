@@ -49,9 +49,9 @@ jobs:
           go.sum
           benchmark/go.sum
     - name: Run benchmark
-      run: go test -bench ./... | tee bench-output.txt
+      run: cd benchmark && go test -bench ./... | tee bench-output.txt
     - name: Store benchmark result
       uses: benchmark-action/github-action-benchmark@v1
       with:
         tool: 'go'
-        output-file-path: bench-output.txt
+        output-file-path: benchmark/bench-output.txt
