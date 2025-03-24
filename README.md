@@ -58,7 +58,7 @@ By removing LRU caching, which added overhead, it achieves faster execution and 
 This is a drop-in replacement. The only thing you'll need to change is how you create a new tree:
 
 ```go
-tree := iradix.New[byte, int]() // equivalent to `iradix.New[int]()
+tree := iradix.New[byte, int]() // equivalent to `iradix.New[int]()` when using hashicorp's package
 ```
 
 The full documentation is available on [Godoc](http://godoc.org/github.com/AnatolyRugalev/go-iradix-generic).
