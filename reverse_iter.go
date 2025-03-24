@@ -152,17 +152,7 @@ func (ri *ReverseIterator[K, T]) SeekReverseLowerBound(key []K) {
 		}
 
 		// Otherwise, take the lower bound next edge.
-		idx, lbNode := n.getLowerBoundEdge(search[0])
-
-		// From here, we need to update the stack with all values lower than
-		// the lower bound edge. Since getLowerBoundEdge() returns -1 when the
-		// search prefix is larger than all edges, we need to place idx at the
-		// last edge index so they can all be place in the stack, since they
-		// come before our search prefix.
-		if idx == -1 {
-			idx = len(n.edges)
-		}
-
+		idx, exact := n.findLowerBoundEdge(search[0])
 		// Create stack edges for the all strictly lower edges in this node.
 		if len(n.edges[:idx]) > 0 {
 			ri.i.stack = append(ri.i.stack, n.edges[:idx])
@@ -170,12 +160,12 @@ func (ri *ReverseIterator[K, T]) SeekReverseLowerBound(key []K) {
 
 		// Exit if there's no lower bound edge. The stack will have the previous
 		// nodes already.
-		if lbNode == nil {
+		if !exact {
 			return
 		}
 
 		// Recurse
-		n = lbNode
+		n = n.edges[idx].node
 	}
 }
 

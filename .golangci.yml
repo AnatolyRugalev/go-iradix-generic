@@ -1,1 +1,9 @@
-linters: {}
+linters:
+  enable:
+    - dupl
+    - goimports
+    - gofmt
+    - gocritic
+    - importas
+    - prealloc
+    - revive

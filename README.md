@@ -16,11 +16,9 @@ it soon, so don't keep your hopes high. I will accept PRs, especially the ones t
 
 ## Performance Impact
 
-Who knows. While `bytes.Equal` and `bytes.Compare` might be faster with pure `[]byte`, using basic slice comparison
-shouldn't have a significant performance impact. But I would be happy to learn something if I'm wrong.
-
-I don't have any benchmarks because I just don't really care that much yet. I will be happy to see apples-to-apples
-if you run some benchmarks with it.
+None. Hashicorp's implementation uses LRU cache to keep write cache, however, according to my [unsophisticated benchmarks](benchmark/benchmark_test.go),
+LRU caching allocates more than a simple hashmap. For this reason, LRU is not a part of this library, but you can still plug
+it in, specifying your own caching provider. See [benchmark/benchmark_test.go](benchmark/benchmark_test.go) for an example.
 
 ## How to Use
 
@@ -30,7 +28,7 @@ This is a drop-in replacement. The only thing you'll need to change is how you c
 tree := iradix.New[byte, int]() // equivalent to `iradix.New[int]()
 ```
 
-## Documentation
+## Original Documentation
 
 The full documentation is available on [Godoc](http://godoc.org/github.com/AnatolyRugalev/go-iradix-generic).
 

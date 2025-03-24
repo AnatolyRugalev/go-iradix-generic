@@ -4,18 +4,7 @@
 package iradix
 
 import (
-	"github.com/hashicorp/golang-lru/v2/simplelru"
-)
-
-const (
-	// defaultModifiedCache is the default size of the modified node
-	// cache used per transaction. This is used to cache the updates
-	// to the nodes near the root, while the leaves do not need to be
-	// cached. This is important for very large transactions to prevent
-	// the modified cache from growing to be enormous. This is also used
-	// to set the max size of the mutation notify maps since those should
-	// also be bounded in a similar way.
-	defaultModifiedCache = 8192
+	"slices"
 )
 
 // Tree implements an immutable radix tree. This can be treated as a
@@ -24,13 +13,21 @@ const (
 // means that it is safe to concurrently read from a Tree without any
 // coordination.
 type Tree[K keyT, T any] struct {
+	options
 	root *Node[K, T]
 	size int
 }
 
 // New returns an empty Tree
-func New[K keyT, T any]() *Tree[K, T] {
+func New[K keyT, T any](opts ...Option) *Tree[K, T] {
+	o := defaultOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	t := &Tree[K, T]{
+
+		options: o,
 		root: &Node[K, T]{
 			mutateCh: make(chan struct{}),
 		},
@@ -47,6 +44,7 @@ func (t *Tree[K, T]) Len() int {
 // atomically and returns a new tree when committed. A transaction
 // is not thread safe, and should only be used by a single goroutine.
 type Txn[K keyT, T any] struct {
+	options
 	// root is the modified root for the transaction.
 	root *Node[K, T]
 
@@ -62,12 +60,12 @@ type Txn[K keyT, T any] struct {
 	// the course of the transaction. This allows us to re-use the same
 	// nodes for further writes and avoid unnecessary copies of nodes that
 	// have never been exposed outside the transaction. This will only hold
-	// up to defaultModifiedCache number of entries.
-	writable *simplelru.LRU[*Node[K, T], any]
+	// up to defaultChannelLimit number of entries.
+	writable Cache
 
 	// trackChannels is used to hold channels that need to be notified to
 	// signal mutation of the tree. This will only hold up to
-	// defaultModifiedCache number of entries, after which we will set the
+	// defaultChannelLimit number of entries, after which we will set the
 	// trackOverflow flag, which will cause us to use a more expensive
 	// algorithm to perform the notifications. Mutation tracking is only
 	// performed if trackMutate is true.
@@ -79,9 +77,10 @@ type Txn[K keyT, T any] struct {
 // Txn starts a new transaction that can be used to mutate the tree
 func (t *Tree[K, T]) Txn() *Txn[K, T] {
 	txn := &Txn[K, T]{
-		root: t.root,
-		snap: t.root,
-		size: t.size,
+		options: t.options,
+		root:    t.root,
+		snap:    t.root,
+		size:    t.size,
 	}
 	return txn
 }
@@ -90,12 +89,16 @@ func (t *Tree[K, T]) Txn() *Txn[K, T] {
 // does not track any nodes and has TrackMutate turned off. The cloned transaction will contain any uncommitted writes in the original transaction but further mutations to either will be independent and result in different radix trees on Commit. A cloned transaction may be passed to another goroutine and mutated there independently however each transaction may only be mutated in a single thread.
 func (t *Txn[K, T]) Clone() *Txn[K, T] {
 	// reset the writable node cache to avoid leaking future writes into the clone
-	t.writable = nil
+	if t.writable != nil {
+		t.writable.Clear()
+		t.writable = nil
+	}
 
 	txn := &Txn[K, T]{
-		root: t.root,
-		snap: t.snap,
-		size: t.size,
+		options: t.options,
+		root:    t.root,
+		snap:    t.snap,
+		size:    t.size,
 	}
 	return txn
 }
@@ -119,7 +122,7 @@ func (t *Txn[K, T]) trackChannel(ch chan struct{}) {
 
 	// If this would overflow the state we reject it and set the flag (since
 	// we aren't tracking everything that's required any longer).
-	if len(t.trackChannels) >= defaultModifiedCache {
+	if len(t.trackChannels) >= t.channelLimit {
 		// Mark that we are in the overflow state
 		t.trackOverflow = true
 
@@ -146,11 +149,7 @@ func (t *Txn[K, T]) trackChannel(ch chan struct{}) {
 func (t *Txn[K, T]) writeNode(n *Node[K, T], forLeafUpdate bool) *Node[K, T] {
 	// Ensure the writable set exists.
 	if t.writable == nil {
-		lru, err := simplelru.NewLRU[*Node[K, T], any](defaultModifiedCache, nil)
-		if err != nil {
-			panic(err)
-		}
-		t.writable = lru
+		t.writable = t.cacheProvider()
 	}
 
 	// If this node has already been modified, we can continue to use it
@@ -158,21 +157,18 @@ func (t *Txn[K, T]) writeNode(n *Node[K, T], forLeafUpdate bool) *Node[K, T] {
 	// a node update since the node is writable, but if this is for a leaf
 	// update we track it, in case the initial write to this node didn't
 	// update the leaf.
-	if _, ok := t.writable.Get(n); ok {
+	if t.writable.Has(n) {
 		if t.trackMutate && forLeafUpdate && n.leaf != nil {
 			t.trackChannel(n.leaf.mutateCh)
 		}
 		return n
 	}
 
-	// Mark this node as being mutated.
 	if t.trackMutate {
 		t.trackChannel(n.mutateCh)
-	}
-
-	// Mark its leaf as being mutated, if appropriate.
-	if t.trackMutate && forLeafUpdate && n.leaf != nil {
-		t.trackChannel(n.leaf.mutateCh)
+		if forLeafUpdate && n.leaf != nil {
+			t.trackChannel(n.leaf.mutateCh)
+		}
 	}
 
 	// Copy the existing node. If you have set forLeafUpdate it will be
@@ -182,18 +178,12 @@ func (t *Txn[K, T]) writeNode(n *Node[K, T], forLeafUpdate bool) *Node[K, T] {
 	nc := &Node[K, T]{
 		mutateCh: make(chan struct{}),
 		leaf:     n.leaf,
-	}
-	if n.prefix != nil {
-		nc.prefix = make([]K, len(n.prefix))
-		copy(nc.prefix, n.prefix)
-	}
-	if len(n.edges) != 0 {
-		nc.edges = make([]edge[K, T], len(n.edges))
-		copy(nc.edges, n.edges)
+		prefix:   slices.Clone(n.prefix),
+		edges:    slices.Clone(n.edges),
 	}
 
 	// Mark this node as writable.
-	t.writable.Add(nc, nil)
+	t.writable.Set(nc)
 	return nc
 }
 
@@ -235,14 +225,9 @@ func (t *Txn[K, T]) mergeChild(n *Node[K, T]) {
 	}
 
 	// Merge the nodes.
-	n.prefix = concat(n.prefix, child.prefix)
+	n.prefix = append(n.prefix, child.prefix...)
 	n.leaf = child.leaf
-	if len(child.edges) != 0 {
-		n.edges = make([]edge[K, T], len(child.edges))
-		copy(n.edges, child.edges)
-	} else {
-		n.edges = nil
-	}
+	n.edges = slices.Clone(child.edges)
 }
 
 // insert does a recursive insertion
@@ -487,7 +472,7 @@ func (t *Txn[K, T]) DeletePrefix(prefix []K) bool {
 	newRoot, numDeletions := t.deletePrefix(t.root, prefix)
 	if newRoot != nil {
 		t.root = newRoot
-		t.size = t.size - numDeletions
+		t.size -= numDeletions
 		return true
 	}
 	return false
@@ -526,8 +511,15 @@ func (t *Txn[K, T]) Commit() *Tree[K, T] {
 // CommitOnly is used to finalize the transaction and return a new tree, but
 // does not issue any notifications until Notify is called.
 func (t *Txn[K, T]) CommitOnly() *Tree[K, T] {
-	nt := &Tree[K, T]{t.root, t.size}
-	t.writable = nil
+	nt := &Tree[K, T]{
+		options: t.options,
+		root:    t.root,
+		size:    t.size,
+	}
+	if t.writable != nil {
+		t.writable.Clear()
+		t.writable = nil
+	}
 	return nt
 }
 
@@ -657,23 +649,15 @@ func (t *Tree[K, T]) Get(k []K) (T, bool) {
 // longestPrefix finds the length of the shared prefix
 // of two strings
 func longestPrefix[K keyT](k1, k2 []K) int {
-	max := len(k1)
-	if l := len(k2); l < max {
-		max = l
+	size1 := len(k1)
+	if l := len(k2); l < size1 {
+		size1 = l
 	}
 	var i int
-	for i = 0; i < max; i++ {
+	for i = 0; i < size1; i++ {
 		if k1[i] != k2[i] {
 			break
 		}
 	}
 	return i
-}
-
-// concat two byte slices, returning a third new copy
-func concat[K keyT](a, b []K) []K {
-	c := make([]K, len(a)+len(b))
-	copy(c, a)
-	copy(c[len(a):], b)
-	return c
 }

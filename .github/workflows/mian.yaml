@@ -1,4 +1,8 @@
 name: Run Tests
+
+env:
+  GO_VERSION: 1.21
+
 on:
   push:
     branches:
@@ -8,35 +12,41 @@ on:
       - main
 
 jobs:
+  run-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build Go
+        run: go build ./...
+      - name: go vet
+        run: go vet ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+
   run-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: 1.21
-      - name: go vet
-        run: |
-          go vet ./...
+          go-version: ${{ env.GO_VERSION }}
       - name: go test
-        run: |
-          go test -race -v ./... -coverprofile=coverage.out
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-      - name: go fmt
-        run: |
-          files=$(go fmt ./...)
-          if [ -n "$files" ]; then
-            echo "Please run gofmt on these files ..."
-            echo "$files"
-            exit 1
-          fi
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: robherley/go-test-action@v0
         with:
-         path: coverage.out
-         name: Coverage-report
-      - name: Display coverage report 
-        run: go tool cover -func=coverage.out
-      - name: Build Go
-        run: go build ./...
+          testArguments: -race ./...
+
+  run-bench:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache-dependency-path: |
+          go.sum
+          benchmark/go.sum
+    - name: go bench
+      run: cd benchmark && go test -bench ./... -benchtime 1000000x
