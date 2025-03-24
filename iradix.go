@@ -227,7 +227,7 @@ func (t *Txn[K, T]) mergeChild(n *Node[K, T]) {
 	// Merge the nodes.
 	n.prefix = append(n.prefix, child.prefix...)
 	n.leaf = child.leaf
-	n.edges = child.edges
+	n.edges = slices.Clone(child.edges)
 }
 
 // insert does a recursive insertion
