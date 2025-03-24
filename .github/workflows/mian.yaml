@@ -48,10 +48,5 @@ jobs:
         cache-dependency-path: |
           go.sum
           benchmark/go.sum
-    - name: Run benchmark
-      run: cd benchmark && go test -bench ./... | tee bench-output.txt
-    - name: Store benchmark result
-      uses: benchmark-action/github-action-benchmark@v1
-      with:
-        tool: 'go'
-        output-file-path: benchmark/bench-output.txt
+    - name: go bench
+      run: cd benchmark && go test -bench ./... -benchtime 1000000x
