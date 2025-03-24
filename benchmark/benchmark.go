@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 )
 
 type Profile struct {
@@ -53,9 +52,6 @@ func runTest(b *testing.B, profile Profile, name string, fn func(b *testing.B, k
 	})
 	if !shouldRun {
 		return
-	}
-	if profile.Seed == 0 {
-		profile.Seed = time.Now().UnixNano()
 	}
 	rng := rand.New(rand.NewSource(profile.Seed))
 	b.Run(name, func(b *testing.B) {

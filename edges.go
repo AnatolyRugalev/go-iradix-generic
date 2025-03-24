@@ -16,6 +16,3 @@ func (e edges[K, T]) Less(i, j int) bool {
 func (e edges[K, T]) Swap(i, j int) {
 	e[i], e[j] = e[j], e[i]
 }
-
-type EdgeIndexer[K keyT] interface {
-}

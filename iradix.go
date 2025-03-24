@@ -5,7 +5,6 @@ package iradix
 
 import (
 	"slices"
-	"unsafe"
 )
 
 // Tree implements an immutable radix tree. This can be treated as a
@@ -27,6 +26,7 @@ func New[K keyT, T any](opts ...Option) *Tree[K, T] {
 	}
 
 	t := &Tree[K, T]{
+
 		options: o,
 		root: &Node[K, T]{
 			mutateCh: make(chan struct{}),
@@ -91,6 +91,7 @@ func (t *Txn[K, T]) Clone() *Txn[K, T] {
 	// reset the writable node cache to avoid leaking future writes into the clone
 	if t.writable != nil {
 		t.writable.Clear()
+		t.writable = nil
 	}
 
 	txn := &Txn[K, T]{
@@ -156,7 +157,7 @@ func (t *Txn[K, T]) writeNode(n *Node[K, T], forLeafUpdate bool) *Node[K, T] {
 	// a node update since the node is writable, but if this is for a leaf
 	// update we track it, in case the initial write to this node didn't
 	// update the leaf.
-	if t.writable.Has((uintptr)(unsafe.Pointer(n))) {
+	if t.writable.Has(n) {
 		if t.trackMutate && forLeafUpdate && n.leaf != nil {
 			t.trackChannel(n.leaf.mutateCh)
 		}
@@ -182,7 +183,7 @@ func (t *Txn[K, T]) writeNode(n *Node[K, T], forLeafUpdate bool) *Node[K, T] {
 	}
 
 	// Mark this node as writable.
-	t.writable.Set(uintptr(unsafe.Pointer(n)))
+	t.writable.Set(nc)
 	return nc
 }
 
@@ -224,9 +225,9 @@ func (t *Txn[K, T]) mergeChild(n *Node[K, T]) {
 	}
 
 	// Merge the nodes.
-	n.prefix = append(slices.Clone(n.prefix), child.prefix...)
+	n.prefix = append(n.prefix, child.prefix...)
 	n.leaf = child.leaf
-	n.edges = slices.Clone(child.edges)
+	n.edges = child.edges
 }
 
 // insert does a recursive insertion
@@ -319,15 +320,14 @@ func (t *Txn[K, T]) insert(n *Node[K, T], k, search []K, v T) (*Node[K, T], T, b
 		return nc, zero, false
 	}
 
-	child2 := &Node[K, T]{
-		mutateCh: make(chan struct{}),
-		leaf:     leaf,
-		prefix:   search,
-	}
 	// Create a new edge for the node
 	splitNode.addEdge(edge[K, T]{
 		label: search[0],
-		node:  child2,
+		node: &Node[K, T]{
+			mutateCh: make(chan struct{}),
+			leaf:     leaf,
+			prefix:   search,
+		},
 	})
 	return nc, zero, false
 }
@@ -518,6 +518,7 @@ func (t *Txn[K, T]) CommitOnly() *Tree[K, T] {
 	}
 	if t.writable != nil {
 		t.writable.Clear()
+		t.writable = nil
 	}
 	return nt
 }

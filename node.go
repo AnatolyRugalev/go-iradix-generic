@@ -42,6 +42,8 @@ type Node[K keyT, T any] struct {
 	edges edges[K, T]
 }
 
+func (n *Node[K, T]) cacheableNode() {}
+
 func (n *Node[K, T]) isLeaf() bool {
 	return n.leaf != nil
 }
