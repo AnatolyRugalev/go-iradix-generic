@@ -72,7 +72,7 @@ func TestRadix_HugeTxn(t *testing.T) {
 	var out [][]byte
 	fn := func(k []byte, _ int) bool {
 		out = append(out, k)
-		return false
+		return true
 	}
 	r.Root().Walk(fn)
 
@@ -460,7 +460,7 @@ func verifyTree[T any](t *testing.T, expected []string, r *Tree[byte, T]) {
 	var out []string
 	fn := func(k []byte, _ T) bool {
 		out = append(out, string(k))
-		return false
+		return true
 	}
 	root.Walk(fn)
 
@@ -587,7 +587,7 @@ func TestWalkPrefix(t *testing.T) {
 		var out []string
 		fn := func(k []byte, _ interface{}) bool {
 			out = append(out, string(k))
-			return false
+			return true
 		}
 		root.WalkPrefix([]byte(test.inp), fn)
 		sort.Strings(out)
@@ -781,7 +781,7 @@ func TestMergeChildNilEdges(t *testing.T) {
 	var out []string
 	fn := func(k []byte, _ int) bool {
 		out = append(out, string(k))
-		return false
+		return true
 	}
 	root.Walk(fn)
 

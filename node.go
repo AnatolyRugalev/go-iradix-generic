@@ -288,17 +288,17 @@ func (n *Node[K, T]) WalkPath(path []K, fn WalkFn[K, T]) {
 // recursively. Returns true if the walk should be aborted
 func recursiveWalk[K keyT, T any](n *Node[K, T], fn WalkFn[K, T]) bool {
 	// Visit the leaf values if any
-	if n.leaf != nil && fn(n.leaf.key, n.leaf.val) {
-		return true
+	if n.leaf != nil && !fn(n.leaf.key, n.leaf.val) {
+		return false
 	}
 
 	// Recurse on the children
 	for _, e := range n.edges {
-		if recursiveWalk(e.node, fn) {
-			return true
+		if !recursiveWalk(e.node, fn) {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 // reverseRecursiveWalk is used to do a reverse pre-order
@@ -306,16 +306,16 @@ func recursiveWalk[K keyT, T any](n *Node[K, T], fn WalkFn[K, T]) bool {
 // should be aborted
 func reverseRecursiveWalk[K keyT, T any](n *Node[K, T], fn WalkFn[K, T]) bool {
 	// Visit the leaf values if any
-	if n.leaf != nil && fn(n.leaf.key, n.leaf.val) {
-		return true
+	if n.leaf != nil && !fn(n.leaf.key, n.leaf.val) {
+		return false
 	}
 
 	// Recurse on the children in reverse order
 	for i := len(n.edges) - 1; i >= 0; i-- {
 		e := n.edges[i]
-		if reverseRecursiveWalk(e.node, fn) {
-			return true
+		if !reverseRecursiveWalk(e.node, fn) {
+			return false
 		}
 	}
-	return false
+	return true
 }

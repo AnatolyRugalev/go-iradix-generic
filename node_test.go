@@ -24,7 +24,7 @@ func TestNodeWalk(t *testing.T) {
 		}
 
 		i++
-		return i >= len(keys)
+		return i < len(keys)
 	})
 }
 
@@ -45,6 +45,6 @@ func TestNodeWalkBackwards(t *testing.T) {
 		}
 
 		i--
-		return i < 0
+		return i >= 0
 	})
 }
