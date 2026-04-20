@@ -23,8 +23,6 @@ The Generic implementation demonstrates improved performance and efficiency over
 By removing LRU caching, which added overhead, it achieves faster execution and fewer allocations, particularly in `Update`,
 `Insert`, and `Delete` operations. Overall, it's a lightweight and effective alternative for scenarios where `[]byte` keys are unnecessary.
 
-> :point_up: AI slop
-
 #### ns/op
 
 | Benchmark           | Generic (ns/op) | Generic-LRU (ns/op) | Hashicorp (ns/op) |
